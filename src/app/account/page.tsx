@@ -80,6 +80,10 @@ function AccountDashboard() {
   const [savingProfile, setSavingProfile] = React.useState(false);
   const [profileSuccess, setProfileSuccess] = React.useState(false);
 
+  // Orders state
+  const [orders, setOrders] = React.useState<any[]>([]);
+  const [loadingOrders, setLoadingOrders] = React.useState(false);
+
   React.useEffect(() => {
     if (user) {
       setProfileForm({
@@ -92,12 +96,40 @@ function AccountDashboard() {
     }
   }, [user]);
 
-  // Fetch addresses when tab opens
+  // Fetch addresses & orders when tab opens
   React.useEffect(() => {
     if (activeTab === "addresses") {
       fetchAddresses();
+    } else if (activeTab === "orders" || activeTab === "overview") {
+      fetchOrders();
     }
   }, [activeTab]);
+
+  const fetchOrders = async () => {
+    setLoadingOrders(true);
+    try {
+      const res = await fetch("/api/orders");
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setOrders(json.data);
+      }
+    } catch {
+      // Graceful error
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  const handleCancelOrder = async (orderNumber: string) => {
+    try {
+      const res = await fetch(`/api/orders/${orderNumber}/cancel`, { method: "POST" });
+      if (res.ok) {
+        await fetchOrders();
+      }
+    } catch {
+      // Error
+    }
+  };
 
   const fetchAddresses = async () => {
     setLoadingAddresses(true);
@@ -358,8 +390,10 @@ function AccountDashboard() {
                   <span className="text-overline uppercase tracking-wider text-foreground-subtle">
                     Total Orders
                   </span>
-                  <div className="text-heading-2 font-bold text-foreground font-mono">0</div>
-                  <span className="text-[11px] text-foreground-muted">No historical purchases</span>
+                  <div className="text-heading-2 font-bold text-foreground font-mono">{orders.length}</div>
+                  <span className="text-[11px] text-foreground-muted">
+                    {orders.length === 0 ? "No historical purchases" : `${orders.length} orders recorded`}
+                  </span>
                 </div>
 
                 <div className="p-5 rounded-xl border border-border bg-background-subtle space-y-1">
@@ -647,21 +681,87 @@ function AccountDashboard() {
           )}
 
           {activeTab === "orders" && (
-            <div className="py-12 flex flex-col items-center text-center space-y-4">
-              <div className="h-16 w-16 rounded-full bg-surface-muted flex items-center justify-center text-foreground-muted">
-                <Package className="h-8 w-8" />
-              </div>
-              <div className="space-y-1 max-w-sm">
-                <h3 className="text-heading-3 font-semibold text-foreground">
-                  Order History & Fulfillment Tracking
-                </h3>
-                <p className="text-body-sm text-foreground-muted leading-relaxed">
-                  Transactional orders and live courier tracking will activate in upcoming phases.
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-heading-2 font-bold text-foreground">Order History</h2>
+                <p className="text-body-sm text-foreground-muted">
+                  View and manage your footwear reservations and orders.
                 </p>
               </div>
-              <Badge variant="outline" size="sm">
-                Roadmap: Future Phase
-              </Badge>
+
+              {loadingOrders ? (
+                <div className="py-12 text-center text-foreground-muted text-body-sm">
+                  Loading orders...
+                </div>
+              ) : orders.length === 0 ? (
+                <div className="py-12 flex flex-col items-center text-center space-y-4 border border-dashed border-border rounded-xl">
+                  <Package className="h-8 w-8 text-foreground-subtle" />
+                  <p className="text-body-sm text-foreground-muted">No historical purchases yet.</p>
+                  <Link href="/shop">
+                    <Button variant="primary" size="sm">
+                      Explore Catalog
+                    </Button>
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {orders.map((ord: any) => (
+                    <div key={ord.id} className="p-6 rounded-xl border border-border bg-background-subtle space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/50">
+                        <div>
+                          <span className="font-mono font-bold text-body-sm text-foreground block">
+                            {ord.orderNumber}
+                          </span>
+                          <span className="text-caption text-foreground-muted">
+                            Placed on {new Date(ord.placedAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={ord.status === "cancelled" ? "outline" : "primary"}
+                            size="sm"
+                            className={ord.status === "cancelled" ? "text-error border-error/30" : ""}
+                          >
+                            {ord.status.toUpperCase()}
+                          </Badge>
+                          <Badge variant="outline" size="sm">
+                            {ord.paymentStatus.toUpperCase()}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        {ord.items.map((item: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between text-body-sm">
+                            <span className="text-foreground">
+                              {item.productName} ({item.size} • {item.color}) x{item.orderedQuantity}
+                            </span>
+                            <span className="font-mono font-semibold text-foreground">
+                              ${(item.lineTotal / 100).toFixed(2)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="pt-3 border-t border-border/50 flex items-center justify-between">
+                        <span className="font-bold text-foreground">
+                          Total: <span className="font-mono text-primary">${(ord.total / 100).toFixed(2)}</span>
+                        </span>
+                        {ord.status === "pending" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleCancelOrder(ord.orderNumber)}
+                            className="text-error border-error/30 hover:bg-error/10 hover:border-error text-caption h-8"
+                          >
+                            Cancel Order
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

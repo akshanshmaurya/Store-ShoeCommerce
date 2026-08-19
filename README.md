@@ -10,13 +10,13 @@ Customer-facing e-commerce application for the **VELOCE Footwear Commerce Platfo
 Storefront Client / Pages (React Server & Client Components)
                   │
                   ▼
-HTTP API Route Handlers (src/app/api/cart/*, src/app/api/wishlist/*, src/app/api/auth/*, src/app/api/products/*)
+HTTP API Route Handlers (src/app/api/checkout/*, src/app/api/orders/*, src/app/api/cart/*, src/app/api/auth/*)
                   │
                   ▼
-Session Resolver & Services (CartService, WishlistService, AuthService, AccountService, CatalogService)
+Session Resolver & Services (CheckoutService, OrderService, CartService, WishlistService, AuthService)
                   │
                   ▼
-Server Repositories (CartRepository, WishlistRepository, CustomerRepository, AddressRepository, ProductRepository)
+Server Repositories (OrderRepository, InventoryReservationRepository, CartRepository, CustomerRepository, ProductRepository)
                   │
                   ▼
 MongoDB Connection Layer (src/server/db/mongodb.ts)
@@ -25,17 +25,26 @@ MongoDB Connection Layer (src/server/db/mongodb.ts)
 Shared MongoDB Cluster (Single Source of Truth)
 ```
 
-- **Domain Ownership**: Customer browsing, search, discovery, catalog navigation, customer identity, authenticated account dashboard, address book, persistent shopping cart, guest cart, cart merge, and persistent wishlist.
+- **Domain Ownership**: Customer browsing, search, discovery, catalog navigation, customer identity, authenticated account dashboard, address book, persistent shopping bag, wishlist, express checkout, server-side pricing, atomic inventory reservation, and customer order management.
 - **Independence**: Fully independent repository, zero shared workspaces, zero cross-application source imports.
-- **Security Invariant**: Frontends never connect directly to MongoDB from the browser. Passwords hashed using `crypto.scrypt`. Administrative fields (`costPrice`, `passwordHash`, reset tokens, supplier data) are strictly excluded from public responses.
-- **Authorization Scoping**: All customer address, cart, and wishlist operations are strictly scoped to the authenticated customer ID or secure guest session ID, preventing cross-user data leakage.
-- **Inventory Invariant**: Cart operations **NEVER** mutate inventory (`onHand`, `reserved`, `available`, `damaged`, `inventoryMovements`). Cart represents intent; reservation is deferred to checkout.
+- **Security Invariant**: Frontends never connect directly to MongoDB from the browser. Passwords hashed using `crypto.scrypt`. Administrative fields (`costPrice`, `passwordHash`, reset tokens, supplier data, warehouse internal IDs) are strictly excluded from public responses.
+- **Pricing & Cart Non-Authority**: Checkout **NEVER** trusts client-supplied prices, subtotals, or taxes. Prices are re-fetched from the authoritative catalog; subtotals and taxes (8%) are computed server-side in integer minor units.
+- **Atomic Stock Reservation**: Stock reservations are executed atomically using conditional `$gte` updates on `available` stock before creating the order record. If any item is unavailable, partial reservations are automatically rolled back.
+- **Idempotency**: All checkout submissions accept or generate an `idempotencyKey` preventing duplicate orders on network retries.
 
 ---
 
 ## 2. API Endpoints Reference
 
 All API routes return standard JSON envelopes (`{ success: true, data: T, meta?: Record<string, unknown> }` or `{ success: false, error: { code, message } }`).
+
+### Checkout & Orders API (`/api/checkout/`, `/api/orders/`)
+| Method | Endpoint | Description | Request Body / Parameters |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/checkout` | Process authenticated checkout, reserve inventory, create order, and clear cart | `shippingAddressId`, `billingAddressId?`, `idempotencyKey?`, `notes?` |
+| `GET` | `/api/orders` | List authenticated customer order history (sorted newest first) | None (reads session) |
+| `GET` | `/api/orders/:orderNumber` | Retrieve detailed order breakdown (scoped to owner; 404 for others) | `orderNumber` in URL path |
+| `POST` | `/api/orders/:orderNumber/cancel` | Cancel pending order and release reserved inventory | `reason?` in request body |
 
 ### Persistent Cart API (`/api/cart/`)
 | Method | Endpoint | Description | Request Body / Parameters |
@@ -98,7 +107,7 @@ npm install
 # Start development server (http://localhost:3000)
 npm run dev
 
-# Run automated API & component test suite (46 tests)
+# Run automated API & component test suite (58 tests)
 npm test
 
 # Type-check TypeScript
