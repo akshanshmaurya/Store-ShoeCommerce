@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server';
-import { AUTH_COOKIE_NAME } from '@/features/auth/server/auth-service';
+import { AUTH_COOKIE_NAME } from '@/server/services/auth-service';
+import { jsonResponse } from '@/server/utils/api-response';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST() {
-  const response = NextResponse.json(
-    { success: true, message: 'Logged out successfully.' },
-    { status: 200 }
-  );
+  const response = jsonResponse({ authenticated: false }, 200, {
+    message: 'Signed out successfully.',
+  });
 
-  // Clear cookie
+  // Clear session cookie
   response.cookies.set({
     name: AUTH_COOKIE_NAME,
     value: '',

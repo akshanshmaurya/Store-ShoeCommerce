@@ -1,17 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/features/auth/server/auth-service';
+import { NextRequest } from 'next/server';
+import { AuthService } from '@/server/services/auth-service';
+import { jsonResponse } from '@/server/utils/api-response';
+import { handleApiError } from '@/server/utils/api-error';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const result = await AuthService.requestPasswordReset(body);
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
 
-    return NextResponse.json(
-      { success: true, message: result.message, previewToken: result.previewToken },
-      { status: 200 }
+    const result = await AuthService.requestPasswordReset(body.email, ip);
+
+    return jsonResponse(
+      { success: true, message: result.message },
+      200,
+      result.previewToken ? { previewToken: result.previewToken } : undefined
     );
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Request failed.';
-    return NextResponse.json({ success: false, error: message }, { status: 400 });
+  } catch (err) {
+    return handleApiError(err);
   }
 }

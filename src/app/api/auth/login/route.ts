@@ -1,15 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AuthService, AUTH_COOKIE_NAME } from '@/features/auth/server/auth-service';
+import { NextRequest } from 'next/server';
+import { AuthService, AUTH_COOKIE_NAME } from '@/server/services/auth-service';
+import { jsonResponse } from '@/server/utils/api-response';
+import { handleApiError } from '@/server/utils/api-error';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { user, token } = await AuthService.login(body);
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
 
-    const response = NextResponse.json(
-      { success: true, user, message: 'Authentication successful.' },
-      { status: 200 }
-    );
+    const { customer, token } = await AuthService.login({
+      ...body,
+      ip,
+    });
+
+    const response = jsonResponse(customer, 200, {
+      message: 'Authenticated successfully.',
+    });
 
     // Set secure HttpOnly session cookie
     response.cookies.set({
@@ -23,8 +31,7 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Invalid email or password.';
-    return NextResponse.json({ success: false, error: message }, { status: 401 });
+  } catch (err) {
+    return handleApiError(err);
   }
 }

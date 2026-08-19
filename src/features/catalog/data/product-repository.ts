@@ -38,7 +38,7 @@ validateCatalogIntegrity(MOCK_PRODUCTS);
 
 export class ProductRepository {
   /**
-   * Comprehensive Product Query & Dynamic Filter Engine (Phase 4)
+   * Comprehensive Product Query & Dynamic Filter Engine (Phase 4 / Phase 7 Isomorphic)
    */
   static async queryProducts(query: CatalogQuery = {}): Promise<CatalogResult> {
     const allActive = MOCK_PRODUCTS.filter((p) => p.status === 'ACTIVE');
@@ -140,7 +140,6 @@ export class ProductRepository {
         break;
       case 'featured':
       default:
-        // Preserves default curated order
         break;
     }
 
@@ -172,7 +171,6 @@ export class ProductRepository {
     allProducts: Product[],
     filteredProducts: Product[]
   ): AvailableFilters {
-    // Categories
     const categories: FilterFacetOption[] = CATEGORIES.filter((c) => c.status === 'ACTIVE').map(
       (cat) => ({
         id: cat.id,
@@ -183,7 +181,6 @@ export class ProductRepository {
       })
     );
 
-    // Brands
     const brands: FilterFacetOption[] = BRANDS.map((b) => ({
       id: b.id,
       name: b.name,
@@ -192,7 +189,6 @@ export class ProductRepository {
       count: allProducts.filter((p) => p.brand.slug === b.slug).length,
     }));
 
-    // Collections
     const collections: FilterFacetOption[] = COLLECTIONS.map((c) => ({
       id: c.id,
       name: c.name,
@@ -201,7 +197,6 @@ export class ProductRepository {
       count: allProducts.filter((p) => p.collections.some((col) => col.slug === c.slug)).length,
     }));
 
-    // Genders
     const genders: FilterFacetOption<GenderCategory>[] = [
       {
         id: 'gender-men',
@@ -226,7 +221,6 @@ export class ProductRepository {
       },
     ];
 
-    // Sizes
     const sizesMap = new Map<string, { label: string; count: number; sortOrder: number }>();
     for (const p of allProducts) {
       for (const v of p.variants) {
@@ -254,7 +248,6 @@ export class ProductRepository {
         count: info.count,
       }));
 
-    // Colors
     const colorsMap = new Map<string, { name: string; hex: string; count: number }>();
     for (const p of allProducts) {
       for (const v of p.variants) {
@@ -283,7 +276,6 @@ export class ProductRepository {
       })
     );
 
-    // Min / Max Price
     let minPrice = Infinity;
     let maxPrice = 0;
     for (const p of allProducts) {
@@ -318,7 +310,6 @@ export class ProductRepository {
 
     const q = keyword.toLowerCase().trim();
 
-    // Matching Products
     const matchingProducts = MOCK_PRODUCTS.filter(
       (p) =>
         p.status === 'ACTIVE' &&
@@ -338,7 +329,6 @@ export class ProductRepository {
       category: p.category.name,
     }));
 
-    // Matching Categories
     const categories = CATEGORIES.filter(
       (c) => c.status === 'ACTIVE' && c.name.toLowerCase().includes(q)
     ).map((c) => ({
@@ -348,14 +338,12 @@ export class ProductRepository {
       count: MOCK_PRODUCTS.filter((p) => p.category.slug === c.slug && p.status === 'ACTIVE').length,
     }));
 
-    // Matching Collections
     const collections = COLLECTIONS.filter((c) => c.name.toLowerCase().includes(q)).map((c) => ({
       id: c.id,
       name: c.name,
       slug: c.slug,
     }));
 
-    // Matching Brands
     const brands = BRANDS.filter((b) => b.name.toLowerCase().includes(q)).map((b) => ({
       id: b.id,
       name: b.name,
@@ -390,7 +378,7 @@ export class ProductRepository {
       minPriceMinor: filter?.minPriceMinor,
       maxPriceMinor: filter?.maxPriceMinor,
       sortBy: filter?.sortBy,
-      pageSize: 100, // Return all for legacy caller
+      pageSize: 100,
     });
     return result.products;
   }
@@ -449,7 +437,6 @@ export class ProductRepository {
       product.media.find((m) => m.role === 'PRIMARY') || product.media[0];
     const secondaryMedia = product.media.find((m) => m.role === 'SECONDARY');
 
-    // Extract unique colors available across variants
     const colorsMap = new Map();
     for (const v of product.variants) {
       if (v.status === 'ACTIVE' && !colorsMap.has(v.color.id)) {
@@ -457,7 +444,6 @@ export class ProductRepository {
       }
     }
 
-    // Extract unique sizes
     const sizesSet = new Set(
       product.variants.filter((v) => v.status === 'ACTIVE').map((v) => v.size.id)
     );

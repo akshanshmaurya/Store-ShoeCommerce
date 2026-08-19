@@ -6,6 +6,7 @@ import { useAuth } from "@/features/auth/context/auth-context";
 import { AuthGuard } from "@/features/auth/components/auth-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   User as UserIcon,
   ShoppingBag,
@@ -15,12 +16,28 @@ import {
   LogOut,
   Sparkles,
   ShieldCheck,
-  Clock,
   ChevronRight,
   Package,
+  Plus,
+  Trash2,
+  CheckCircle,
 } from "lucide-react";
 
 type AccountTab = "overview" | "profile" | "orders" | "addresses" | "wishlist" | "settings";
+
+interface AddressItem {
+  id: string;
+  recipientName: string;
+  phone?: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  isDefault: boolean;
+  type: string;
+}
 
 export default function AccountPage() {
   return (
@@ -31,9 +48,148 @@ export default function AccountPage() {
 }
 
 function AccountDashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = React.useState<AccountTab>("overview");
   const [loggingOut, setLoggingOut] = React.useState(false);
+
+  // Address state
+  const [addresses, setAddresses] = React.useState<AddressItem[]>([]);
+  const [loadingAddresses, setLoadingAddresses] = React.useState(false);
+  const [showAddressForm, setShowAddressForm] = React.useState(false);
+  const [savingAddress, setSavingAddress] = React.useState(false);
+  const [addressForm, setAddressForm] = React.useState({
+    recipientName: "",
+    phone: "",
+    line1: "",
+    line2: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "India",
+    isDefault: false,
+  });
+
+  // Profile update state
+  const [profileForm, setProfileForm] = React.useState({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    preferredSizeSystem: "US" as "US" | "UK" | "EU",
+    preferredSizeValue: "10",
+  });
+  const [savingProfile, setSavingProfile] = React.useState(false);
+  const [profileSuccess, setProfileSuccess] = React.useState(false);
+
+  React.useEffect(() => {
+    if (user) {
+      setProfileForm({
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.profile?.phone || "",
+        preferredSizeSystem: user.profile?.preferredSizeSystem || "US",
+        preferredSizeValue: user.profile?.preferredSizeValue || "10",
+      });
+    }
+  }, [user]);
+
+  // Fetch addresses when tab opens
+  React.useEffect(() => {
+    if (activeTab === "addresses") {
+      fetchAddresses();
+    }
+  }, [activeTab]);
+
+  const fetchAddresses = async () => {
+    setLoadingAddresses(true);
+    try {
+      const res = await fetch("/api/account/addresses");
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setAddresses(json.data);
+      }
+    } catch {
+      // Graceful error
+    } finally {
+      setLoadingAddresses(false);
+    }
+  };
+
+  const handleCreateAddress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingAddress(true);
+    try {
+      const res = await fetch("/api/account/addresses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(addressForm),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setShowAddressForm(false);
+        setAddressForm({
+          recipientName: "",
+          phone: "",
+          line1: "",
+          line2: "",
+          city: "",
+          state: "",
+          postalCode: "",
+          country: "India",
+          isDefault: false,
+        });
+        await fetchAddresses();
+      }
+    } catch {
+      // Error
+    } finally {
+      setSavingAddress(false);
+    }
+  };
+
+  const handleDeleteAddress = async (id: string) => {
+    try {
+      const res = await fetch(`/api/account/addresses/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        await fetchAddresses();
+      }
+    } catch {
+      // Error
+    }
+  };
+
+  const handleSetDefaultAddress = async (id: string) => {
+    try {
+      const res = await fetch(`/api/account/addresses/${id}/default`, { method: "POST" });
+      if (res.ok) {
+        await fetchAddresses();
+      }
+    } catch {
+      // Error
+    }
+  };
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingProfile(true);
+    setProfileSuccess(false);
+    try {
+      const res = await fetch("/api/account/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(profileForm),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setProfileSuccess(true);
+        if (refreshUser) await refreshUser();
+        setTimeout(() => setProfileSuccess(false), 3000);
+      }
+    } catch {
+      // Error
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -116,24 +272,6 @@ function AccountDashboard() {
 
           <button
             type="button"
-            onClick={() => setActiveTab("orders")}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-body-sm font-semibold transition-all ${
-              activeTab === "orders"
-                ? "bg-primary text-background shadow-glow"
-                : "text-foreground-muted hover:text-foreground hover:bg-surface-muted"
-            }`}
-          >
-            <span className="flex items-center gap-3">
-              <ShoppingBag className="h-4 w-4" />
-              Order History
-            </span>
-            <Badge variant="outline" size="sm" className="text-[10px] uppercase">
-              Phase 5
-            </Badge>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setActiveTab("addresses")}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-body-sm font-semibold transition-all ${
               activeTab === "addresses"
@@ -145,8 +283,8 @@ function AccountDashboard() {
               <MapPin className="h-4 w-4" />
               Saved Addresses
             </span>
-            <Badge variant="outline" size="sm" className="text-[10px] uppercase">
-              Phase 5
+            <Badge variant="primary" size="sm" className="text-[10px]">
+              {addresses.length}
             </Badge>
           </button>
 
@@ -163,8 +301,24 @@ function AccountDashboard() {
               <Heart className="h-4 w-4" />
               Saved Wishlist
             </span>
+            <ChevronRight className="h-4 w-4 opacity-50" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("orders")}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-body-sm font-semibold transition-all ${
+              activeTab === "orders"
+                ? "bg-primary text-background shadow-glow"
+                : "text-foreground-muted hover:text-foreground hover:bg-surface-muted"
+            }`}
+          >
+            <span className="flex items-center gap-3">
+              <ShoppingBag className="h-4 w-4" />
+              Order History
+            </span>
             <Badge variant="outline" size="sm" className="text-[10px] uppercase">
-              Phase 5
+              Phase 9
             </Badge>
           </button>
 
@@ -213,9 +367,9 @@ function AccountDashboard() {
                     Bespoke Size Profile
                   </span>
                   <div className="text-heading-2 font-bold text-primary font-mono">
-                    {user.profile.preferredSizeValue
-                      ? `${user.profile.preferredSizeSystem || "US"} ${user.profile.preferredSizeValue}`
-                      : "US 10.5"}
+                    {user.profile?.preferredSizeValue
+                      ? `${user.profile?.preferredSizeSystem || "US"} ${user.profile?.preferredSizeValue}`
+                      : "US 10"}
                   </div>
                   <span className="text-[11px] text-foreground-muted">Tailored recommendations</span>
                 </div>
@@ -229,14 +383,13 @@ function AccountDashboard() {
                 </div>
               </div>
 
-              {/* Quick Info Box */}
               <div className="p-6 rounded-xl border border-border bg-surface-muted/50 space-y-3">
                 <div className="flex items-center gap-2 text-primary font-semibold text-body-sm uppercase tracking-wider">
                   <Sparkles className="h-4 w-4" />
-                  Phase 3 Authentication Active
+                  Phase 8 Authentication Active
                 </div>
                 <p className="text-caption text-foreground-muted leading-relaxed">
-                  Your customer session is authenticated with cryptographically signed HttpOnly credentials. In upcoming phases, your cart, saved wishlist, and checkout orders will automatically synchronize with this account.
+                  Your customer session is authenticated with cryptographically signed HttpOnly credentials. Your profile and saved addresses are synchronized directly with the database.
                 </p>
               </div>
             </div>
@@ -251,54 +404,245 @@ function AccountDashboard() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border">
-                <div>
-                  <span className="text-overline uppercase tracking-wider text-foreground-subtle block mb-1">
-                    First Name
-                  </span>
-                  <span className="text-body font-semibold text-foreground">{user.firstName}</span>
+              {profileSuccess && (
+                <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 flex items-center gap-3 text-body-sm font-medium">
+                  <CheckCircle className="h-5 w-5 shrink-0" />
+                  Your profile changes have been saved successfully.
                 </div>
-                <div>
-                  <span className="text-overline uppercase tracking-wider text-foreground-subtle block mb-1">
-                    Last Name
-                  </span>
-                  <span className="text-body font-semibold text-foreground">{user.lastName}</span>
+              )}
+
+              <form onSubmit={handleUpdateProfile} className="space-y-6 pt-4 border-t border-border">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-caption font-semibold uppercase tracking-wider text-foreground-muted block">
+                      First Name
+                    </label>
+                    <Input
+                      value={profileForm.firstName}
+                      onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-caption font-semibold uppercase tracking-wider text-foreground-muted block">
+                      Last Name
+                    </label>
+                    <Input
+                      value={profileForm.lastName}
+                      onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-caption font-semibold uppercase tracking-wider text-foreground-muted block">
+                      Email Address (Permanent)
+                    </label>
+                    <Input value={user.email} disabled className="opacity-60 cursor-not-allowed font-mono" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-caption font-semibold uppercase tracking-wider text-foreground-muted block">
+                      Phone Number
+                    </label>
+                    <Input
+                      value={profileForm.phone}
+                      onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                      placeholder="+91 98765 43210"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-caption font-semibold uppercase tracking-wider text-foreground-muted block">
+                      Preferred Sizing System
+                    </label>
+                    <select
+                      value={profileForm.preferredSizeSystem}
+                      onChange={(e) =>
+                        setProfileForm({
+                          ...profileForm,
+                          preferredSizeSystem: e.target.value as "US" | "UK" | "EU",
+                        })
+                      }
+                      className="w-full h-11 px-4 rounded-xl border border-border bg-surface text-foreground focus:outline-none focus:border-primary"
+                    >
+                      <option value="US">US Sizing</option>
+                      <option value="UK">UK Sizing</option>
+                      <option value="EU">EU Sizing</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-caption font-semibold uppercase tracking-wider text-foreground-muted block">
+                      Preferred Size Value
+                    </label>
+                    <Input
+                      value={profileForm.preferredSizeValue}
+                      onChange={(e) => setProfileForm({ ...profileForm, preferredSizeValue: e.target.value })}
+                      placeholder="e.g. 10.5"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <span className="text-overline uppercase tracking-wider text-foreground-subtle block mb-1">
-                    Email Address
-                  </span>
-                  <span className="text-body font-mono text-foreground">{user.email}</span>
+
+                <div className="flex justify-end pt-4">
+                  <Button variant="primary" size="md" type="submit" disabled={savingProfile}>
+                    {savingProfile ? "Saving Profile..." : "Save Changes"}
+                  </Button>
                 </div>
+              </form>
+            </div>
+          )}
+
+          {activeTab === "addresses" && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-overline uppercase tracking-wider text-foreground-subtle block mb-1">
-                    Phone Number
-                  </span>
-                  <span className="text-body text-foreground">
-                    {user.profile.phone || "+1 (555) 019-2834"}
-                  </span>
+                  <h2 className="text-heading-2 font-bold text-foreground">Saved Delivery Addresses</h2>
+                  <p className="text-body-sm text-foreground-muted">
+                    Manage dispatch locations for express checkout.
+                  </p>
                 </div>
-                <div>
-                  <span className="text-overline uppercase tracking-wider text-foreground-subtle block mb-1">
-                    Preferred Sizing
-                  </span>
-                  <span className="text-body text-primary font-semibold">
-                    {user.profile.preferredSizeSystem || "US"} {user.profile.preferredSizeValue || "10.5"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-overline uppercase tracking-wider text-foreground-subtle block mb-1">
-                    Account Created
-                  </span>
-                  <span className="text-body text-foreground font-mono text-caption">
-                    {new Date(user.createdAt).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </span>
-                </div>
+                {!showAddressForm && (
+                  <Button variant="primary" size="sm" onClick={() => setShowAddressForm(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Address
+                  </Button>
+                )}
               </div>
+
+              {showAddressForm ? (
+                <form onSubmit={handleCreateAddress} className="p-6 rounded-xl border border-border bg-surface-muted/50 space-y-4">
+                  <h3 className="text-body font-bold text-foreground">New Delivery Address</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input
+                      placeholder="Recipient Full Name"
+                      value={addressForm.recipientName}
+                      onChange={(e) => setAddressForm({ ...addressForm, recipientName: e.target.value })}
+                      required
+                    />
+                    <Input
+                      placeholder="Contact Phone"
+                      value={addressForm.phone}
+                      onChange={(e) => setAddressForm({ ...addressForm, phone: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Street Address Line 1"
+                      value={addressForm.line1}
+                      onChange={(e) => setAddressForm({ ...addressForm, line1: e.target.value })}
+                      required
+                      className="md:col-span-2"
+                    />
+                    <Input
+                      placeholder="Apartment, Suite, Unit (Optional)"
+                      value={addressForm.line2}
+                      onChange={(e) => setAddressForm({ ...addressForm, line2: e.target.value })}
+                      className="md:col-span-2"
+                    />
+                    <Input
+                      placeholder="City"
+                      value={addressForm.city}
+                      onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
+                      required
+                    />
+                    <Input
+                      placeholder="State / Province"
+                      value={addressForm.state}
+                      onChange={(e) => setAddressForm({ ...addressForm, state: e.target.value })}
+                      required
+                    />
+                    <Input
+                      placeholder="Postal Code"
+                      value={addressForm.postalCode}
+                      onChange={(e) => setAddressForm({ ...addressForm, postalCode: e.target.value })}
+                      required
+                    />
+                    <Input
+                      placeholder="Country"
+                      value={addressForm.country}
+                      onChange={(e) => setAddressForm({ ...addressForm, country: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="isDefault"
+                      checked={addressForm.isDefault}
+                      onChange={(e) => setAddressForm({ ...addressForm, isDefault: e.target.checked })}
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                    />
+                    <label htmlFor="isDefault" className="text-body-sm text-foreground">
+                      Set as default delivery destination
+                    </label>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-2">
+                    <Button variant="outline" size="sm" type="button" onClick={() => setShowAddressForm(false)}>
+                      Cancel
+                    </Button>
+                    <Button variant="primary" size="sm" type="submit" disabled={savingAddress}>
+                      {savingAddress ? "Saving..." : "Save Address"}
+                    </Button>
+                  </div>
+                </form>
+              ) : null}
+
+              {loadingAddresses ? (
+                <div className="py-12 text-center text-foreground-muted text-body-sm">
+                  Loading addresses...
+                </div>
+              ) : addresses.length === 0 ? (
+                <div className="py-12 flex flex-col items-center text-center space-y-4 border border-dashed border-border rounded-xl">
+                  <MapPin className="h-8 w-8 text-foreground-subtle" />
+                  <p className="text-body-sm text-foreground-muted">No delivery addresses saved yet.</p>
+                  <Button variant="outline" size="sm" onClick={() => setShowAddressForm(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add First Address
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {addresses.map((addr) => (
+                    <div key={addr.id} className="p-5 rounded-xl border border-border bg-background-subtle relative space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-foreground">{addr.recipientName}</span>
+                        {addr.isDefault && (
+                          <Badge variant="primary" size="sm">
+                            Default
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-body-sm text-foreground-muted leading-relaxed">
+                        {addr.line1} {addr.line2 && `, ${addr.line2}`}<br />
+                        {addr.city}, {addr.state} {addr.postalCode}<br />
+                        {addr.country}
+                        {addr.phone && <><br /><span className="font-mono text-caption text-foreground-subtle">{addr.phone}</span></>}
+                      </p>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50">
+                        {!addr.isDefault && (
+                          <button
+                            type="button"
+                            onClick={() => handleSetDefaultAddress(addr.id)}
+                            className="text-caption font-semibold text-primary hover:underline"
+                          >
+                            Set Default
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteAddress(addr.id)}
+                          className="text-caption font-semibold text-error hover:underline flex items-center gap-1 ml-auto"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -312,30 +656,11 @@ function AccountDashboard() {
                   Order History & Fulfillment Tracking
                 </h3>
                 <p className="text-body-sm text-foreground-muted leading-relaxed">
-                  Transactional orders, live courier tracking, and return requests will activate in Phase 5.
+                  Transactional orders and live courier tracking will activate in upcoming phases.
                 </p>
               </div>
               <Badge variant="outline" size="sm">
-                Roadmap: Phase 5 Commerce Workflow
-              </Badge>
-            </div>
-          )}
-
-          {activeTab === "addresses" && (
-            <div className="py-12 flex flex-col items-center text-center space-y-4">
-              <div className="h-16 w-16 rounded-full bg-surface-muted flex items-center justify-center text-foreground-muted">
-                <MapPin className="h-8 w-8" />
-              </div>
-              <div className="space-y-1 max-w-sm">
-                <h3 className="text-heading-3 font-semibold text-foreground">
-                  Saved Delivery Addresses
-                </h3>
-                <p className="text-body-sm text-foreground-muted leading-relaxed">
-                  Address book management and default dispatch locations will be enabled during the checkout phase.
-                </p>
-              </div>
-              <Badge variant="outline" size="sm">
-                Roadmap: Phase 5 Checkout & Addresses
+                Roadmap: Future Phase
               </Badge>
             </div>
           )}
@@ -350,12 +675,14 @@ function AccountDashboard() {
                   Curated Wishlist
                 </h3>
                 <p className="text-body-sm text-foreground-muted leading-relaxed">
-                  Persistent wishlist synchronization across devices will be integrated in Phase 5.
+                  View your saved footwear pieces in the dedicated Wishlist page.
                 </p>
               </div>
-              <Badge variant="outline" size="sm">
-                Roadmap: Phase 5 Wishlist Persistence
-              </Badge>
+              <Link href="/wishlist">
+                <Button variant="primary" size="sm">
+                  Go to Wishlist
+                </Button>
+              </Link>
             </div>
           )}
 
@@ -372,7 +699,7 @@ function AccountDashboard() {
                 <div className="p-4 rounded-xl border border-border bg-background-subtle flex items-center justify-between">
                   <div className="space-y-0.5">
                     <span className="text-body-sm font-semibold text-foreground">Password</span>
-                    <span className="text-caption text-foreground-subtle block">Last updated recently</span>
+                    <span className="text-caption text-foreground-subtle block">Protected with scrypt encryption</span>
                   </div>
                   <Link href="/forgot-password">
                     <Button variant="outline" size="sm">

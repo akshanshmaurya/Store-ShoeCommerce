@@ -4,6 +4,7 @@ import * as React from "react";
 import { WishlistItem } from "../types";
 import { Product, ProductCardData } from "@/features/catalog/types";
 import { StorageAdapter } from "@/lib/storage/storage-adapter";
+import { useAuth } from "@/features/auth/context/auth-context";
 
 const WISHLIST_STORAGE_KEY = "veloce_wishlist_v1";
 const WISHLIST_SCHEMA_VERSION = 1;
@@ -17,13 +18,31 @@ interface WishlistContextValue {
   addToWishlist: (product: Product | ProductCardData) => void;
   removeFromWishlist: (productId: string) => void;
   clearWishlist: () => void;
+  refreshWishlist: () => Promise<void>;
 }
 
 const WishlistContext = React.createContext<WishlistContextValue | undefined>(undefined);
 
 export function WishlistProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [items, setItems] = React.useState<WishlistItem[]>([]);
   const [isHydrated, setIsHydrated] = React.useState(false);
+
+  const refreshWishlist = React.useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await fetch('/api/wishlist');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data && Array.isArray(json.data.items)) {
+          setItems(json.data.items);
+          StorageAdapter.setItem(WISHLIST_STORAGE_KEY, json.data.items, WISHLIST_SCHEMA_VERSION);
+        }
+      }
+    } catch {
+      // Fallback
+    }
+  }, [user]);
 
   // Hydrate wishlist from StorageAdapter on mount
   React.useEffect(() => {
@@ -37,12 +56,12 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
     setIsHydrated(true);
   }, []);
 
-  // Save changes to StorageAdapter after hydration
+  // Sync with server when user logs in
   React.useEffect(() => {
-    if (isHydrated) {
-      StorageAdapter.setItem(WISHLIST_STORAGE_KEY, items, WISHLIST_SCHEMA_VERSION);
+    if (user && isHydrated) {
+      refreshWishlist();
     }
-  }, [items, isHydrated]);
+  }, [user, isHydrated, refreshWishlist]);
 
   const totalItems = items.length;
 
@@ -64,7 +83,6 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
     let categoryName = "";
 
     if ("brand" in product) {
-      // Product entity
       primaryImage =
         product.media.find((m) => m.role === "PRIMARY")?.url ||
         product.media[0]?.url ||
@@ -75,7 +93,6 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
       currency = product.currency;
       categoryName = product.category.name;
     } else {
-      // ProductCardData entity
       primaryImage = product.primaryImageUrl;
       brandName = product.brandName;
       basePriceMinor = product.priceMinor;
@@ -98,11 +115,44 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
       addedAt: new Date().toISOString(),
     };
 
-    setItems((prev) => [...prev, newItem]);
+    const updated = [...items, newItem];
+    setItems(updated);
+    StorageAdapter.setItem(WISHLIST_STORAGE_KEY, updated, WISHLIST_SCHEMA_VERSION);
+
+    // Sync to server if authenticated
+    if (user) {
+      fetch('/api/wishlist/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: product.id }),
+      })
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success && json.data && Array.isArray(json.data.items)) {
+            setItems(json.data.items);
+            StorageAdapter.setItem(WISHLIST_STORAGE_KEY, json.data.items, WISHLIST_SCHEMA_VERSION);
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const removeFromWishlist = (productId: string) => {
-    setItems((prev) => prev.filter((item) => item.productId !== productId));
+    const updated = items.filter((item) => item.productId !== productId);
+    setItems(updated);
+    StorageAdapter.setItem(WISHLIST_STORAGE_KEY, updated, WISHLIST_SCHEMA_VERSION);
+
+    if (user) {
+      fetch(`/api/wishlist/items/${productId}`, { method: 'DELETE' })
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success && json.data && Array.isArray(json.data.items)) {
+            setItems(json.data.items);
+            StorageAdapter.setItem(WISHLIST_STORAGE_KEY, json.data.items, WISHLIST_SCHEMA_VERSION);
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const toggleWishlist = (product: Product | ProductCardData) => {
@@ -115,6 +165,11 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
 
   const clearWishlist = () => {
     setItems([]);
+    StorageAdapter.setItem(WISHLIST_STORAGE_KEY, [], WISHLIST_SCHEMA_VERSION);
+
+    if (user) {
+      fetch('/api/wishlist', { method: 'DELETE' }).catch(() => {});
+    }
   };
 
   return (
@@ -128,6 +183,7 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
         addToWishlist,
         removeFromWishlist,
         clearWishlist,
+        refreshWishlist,
       }}
     >
       {children}

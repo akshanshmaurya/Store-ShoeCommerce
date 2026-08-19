@@ -1,15 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AuthService, AUTH_COOKIE_NAME } from '@/features/auth/server/auth-service';
+import { NextRequest } from 'next/server';
+import { AuthService, AUTH_COOKIE_NAME } from '@/server/services/auth-service';
+import { jsonResponse } from '@/server/utils/api-response';
+import { handleApiError } from '@/server/utils/api-error';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { user, token } = await AuthService.register(body);
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
 
-    const response = NextResponse.json(
-      { success: true, user, message: 'Account registered successfully.' },
-      { status: 201 }
-    );
+    const { customer, token } = await AuthService.register({
+      ...body,
+      ip,
+    });
+
+    const response = jsonResponse(customer, 201, {
+      message: 'Account registered successfully.',
+    });
 
     // Set secure HttpOnly session cookie
     response.cookies.set({
@@ -23,8 +31,7 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Registration failed.';
-    return NextResponse.json({ success: false, error: message }, { status: 400 });
+  } catch (err) {
+    return handleApiError(err);
   }
 }

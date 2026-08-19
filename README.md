@@ -1,85 +1,125 @@
-# VELOCE Footwear — Storefront Application
+# Storefront — VELOCE Footwear Platform
 
-The high-performance, customer-facing e-commerce storefront for **VELOCE Atelier Footwear**, delivering an editorial luxury shopping experience with bespoke sizing, carbon propulsion marathon racers, and stateful commerce features.
-
----
-
-## 1. Current Phase & Capabilities
-
-**Status**: Phase 5 Complete (Cart & Wishlist Foundation)
-
-- 🎨 **Phase 1 — Design System**: Locked design tokens (`#0A0A0A` charcoal bg, `#141414` surface, `#C9A96E` warm gold accent), typography scale, fluid spacing, responsive layout grid, and accessible components.
-- 👟 **Phase 2 — Product Catalog & Sizing Curves**: Conceptual Product vs SKU-level `ProductVariant` domain model, 14 mock luxury models with real image assets, 3:4 zoom gallery, color/size variant selector, and exact integer minor-unit pricing.
-- 👤 **Phase 3 — Customer Authentication & Account**: Salted cryptographic `scrypt` password hashing, signed `HttpOnly` JWT sessions (`veloce_session`), Edge Middleware route guard, sign-in, registration, password recovery, and protected `/account` dashboard.
-- 🔍 **Phase 4 — Product Discovery, Search & Dynamic Multi-Filtering**: Full-text partial keyword search, instant autocomplete suggestions modal (`/api/catalog/suggestions`), desktop filter sidebar, mobile slide-over drawer, active filter chips, dynamic facet counts, sorting, pagination, and bidirectional URL query sync (`/shop`, `/shop/[category]`, `/shop/collections/[collection]`, `/search`).
-- 🛍️ **Phase 5 — Stateful Shopping Bag & Wishlist**: Variant-level line item deduplication, stepper quantity controls, slide-over `CartDrawer`, dedicated `/cart` and `/wishlist` pages, interactive wishlist heart toggles, and isolated `StorageAdapter` (`veloce_cart_v1`, `veloce_wishlist_v1`).
+Customer-facing e-commerce application for the **VELOCE Footwear Commerce Platform**.
 
 ---
 
-## 2. Technology Stack
+## 1. Architectural Role & Boundary
 
-- **Framework**: [Next.js 14+ (App Router)](https://nextjs.org/)
-- **Language**: [TypeScript](https://www.typescriptlang.org/)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/) + Custom Design Tokens
-- **Icons**: [Lucide React](https://lucide.dev/)
-- **Session Security**: Cryptographic `scrypt` & signed `HttpOnly` JWTs
+```text
+Storefront Client / Pages (React Server & Client Components)
+                  │
+                  ▼
+HTTP API Route Handlers (src/app/api/cart/*, src/app/api/wishlist/*, src/app/api/auth/*, src/app/api/products/*)
+                  │
+                  ▼
+Session Resolver & Services (CartService, WishlistService, AuthService, AccountService, CatalogService)
+                  │
+                  ▼
+Server Repositories (CartRepository, WishlistRepository, CustomerRepository, AddressRepository, ProductRepository)
+                  │
+                  ▼
+MongoDB Connection Layer (src/server/db/mongodb.ts)
+                  │
+                  ▼
+Shared MongoDB Cluster (Single Source of Truth)
+```
+
+- **Domain Ownership**: Customer browsing, search, discovery, catalog navigation, customer identity, authenticated account dashboard, address book, persistent shopping cart, guest cart, cart merge, and persistent wishlist.
+- **Independence**: Fully independent repository, zero shared workspaces, zero cross-application source imports.
+- **Security Invariant**: Frontends never connect directly to MongoDB from the browser. Passwords hashed using `crypto.scrypt`. Administrative fields (`costPrice`, `passwordHash`, reset tokens, supplier data) are strictly excluded from public responses.
+- **Authorization Scoping**: All customer address, cart, and wishlist operations are strictly scoped to the authenticated customer ID or secure guest session ID, preventing cross-user data leakage.
+- **Inventory Invariant**: Cart operations **NEVER** mutate inventory (`onHand`, `reserved`, `available`, `damaged`, `inventoryMovements`). Cart represents intent; reservation is deferred to checkout.
 
 ---
 
-## 3. Getting Started & Development
+## 2. API Endpoints Reference
 
-### Prerequisites
-- **Node.js**: `>= 18.17.0` (Recommended: Node 20 LTS or Node 24)
-- **npm**: `>= 9.0.0`
+All API routes return standard JSON envelopes (`{ success: true, data: T, meta?: Record<string, unknown> }` or `{ success: false, error: { code, message } }`).
 
-### Installation
+### Persistent Cart API (`/api/cart/`)
+| Method | Endpoint | Description | Request Body / Parameters |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/cart` | Retrieve active cart for current authenticated customer or guest | None |
+| `DELETE` | `/api/cart` | Clear all items from active cart | None |
+| `POST` | `/api/cart/items` | Add product variant to active cart (deduplicates & merges quantity) | `variantId`, `productId?`, `quantity?` (1-10) |
+| `PATCH` | `/api/cart/items/:variantId` | Update quantity of a variant line item | `quantity` (1-10) |
+| `DELETE` | `/api/cart/items/:variantId` | Remove variant line item from active cart | None (variantId in path) |
+| `POST` | `/api/cart/merge` | Merge guest cart items into authenticated customer cart | `guestId?` |
+
+### Persistent Wishlist API (`/api/wishlist/`)
+| Method | Endpoint | Description | Request Body / Parameters |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/wishlist` | Retrieve authenticated customer wishlist (401 if unauthenticated) | None |
+| `DELETE` | `/api/wishlist` | Clear all items from authenticated customer wishlist | None |
+| `POST` | `/api/wishlist/items` | Add product to customer wishlist (deduplicated by productId) | `productId`, `variantId?` |
+| `DELETE` | `/api/wishlist/items/:productId` | Remove product from customer wishlist | None (productId in path) |
+
+### Authentication API (`/api/auth/`)
+| Method | Endpoint | Description | Request Body / Parameters |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/auth/register` | Register customer with scrypt hash and set session cookie | `email`, `password`, `firstName`, `lastName`, `phone?`, `marketingOptIn?` |
+| `POST` | `/api/auth/login` | Authenticate customer with email/password and set cookie | `email`, `password` |
+| `POST` | `/api/auth/logout` | Invalidate and clear `veloce_session` cookie | None |
+| `GET` | `/api/auth/me` | Fetch authenticated customer profile | None (reads HttpOnly session cookie) |
+| `POST` | `/api/auth/forgot-password` | Request password reset token (rate-limited, safe generic response) | `email` |
+| `POST` | `/api/auth/reset-password` | Update password using short-lived reset token | `token`, `newPassword` |
+| `POST` | `/api/auth/verify-email` | Confirm email verification token | `token` |
+
+### Customer Account & Address API (`/api/account/`)
+| Method | Endpoint | Description | Request Body / Parameters |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/account/profile` | Get customer profile details | None (reads session) |
+| `PATCH` | `/api/account/profile` | Update customer name, phone, bespoke sizing preferences | `firstName?`, `lastName?`, `phone?`, `preferredSizeSystem?`, `preferredSizeValue?` |
+| `GET` | `/api/account/addresses` | List saved delivery addresses for authenticated customer | None (reads session) |
+| `POST` | `/api/account/addresses` | Create new delivery address | `recipientName`, `phone?`, `line1`, `line2?`, `city`, `state`, `postalCode`, `country`, `isDefault?` |
+| `PATCH` | `/api/account/addresses/:id` | Update customer's saved address | Address fields (scoped to owner) |
+| `DELETE` | `/api/account/addresses/:id` | Delete customer's saved address | None (scoped to owner) |
+| `POST` | `/api/account/addresses/:id/default` | Set address as default delivery destination | None (scoped to owner) |
+
+### Products & Taxonomy API (`/api/`)
+| Method | Endpoint | Description | Query Parameters |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/products` | Query products with multi-filtering, search, sorting & pagination | `search`, `category`, `collection`, `brand`, `gender`, `size`, `color`, `minPrice`, `maxPrice`, `sort`, `page`, `limit` |
+| `GET` | `/api/products/:slug` | Get full product detail by slug with sizing & colorway matrix | None (slug in URL path) |
+| `GET` | `/api/categories` & `/:slug` | List all active categories or get single category | `slug` in path |
+| `GET` | `/api/collections` & `/:slug` | List all active collections or get single collection | `slug` in path |
+| `GET` | `/api/brands` & `/:slug` | List all active brands or get single brand | `slug` in path |
+| `GET` | `/api/catalog/suggestions` | Instant autocomplete search suggestions | `q` (query string), `limit` (max suggestions) |
+
+---
+
+## 3. Development Commands
+
 ```bash
+# Install dependencies
 npm install
-```
 
-### Environment Configuration
-```bash
-cp .env.example .env.local
-```
+# Start development server (http://localhost:3000)
+npm run dev
 
-### Development Server
-```bash
-npm run dev        # Starts server on http://localhost:3000
-```
+# Run automated API & component test suite (46 tests)
+npm test
 
-### Type Checking & Linting
-```bash
-npm run type-check # TypeScript validation
-npm run lint       # ESLint validation
-```
+# Type-check TypeScript
+npm run type-check
 
-### Production Build
-```bash
-npm run build      # Optimized production build
-npm run start      # Run production server
+# Run linter
+npm run lint
+
+# Compile production build
+npm run build
 ```
 
 ---
 
-## 4. Key Application Routes
+## 4. Environment Variables
 
-- 🏠 **Homepage**: [`/`](http://localhost:3000)
-- 🛍️ **Catalog Browser**: [`/shop`](http://localhost:3000/shop)
-- 🏷️ **Categories**: [`/shop/marathon-racing`](http://localhost:3000/shop/marathon-racing), [`/shop/bespoke-sneakers`](http://localhost:3000/shop/bespoke-sneakers), [`/shop/heritage-boots`](http://localhost:3000/shop/heritage-boots)
-- 🌟 **Collections**: [`/shop/collections/carbon-propulsion`](http://localhost:3000/shop/collections/carbon-propulsion), [`/shop/collections/new-arrivals`](http://localhost:3000/shop/collections/new-arrivals)
-- 🔍 **Search**: [`/search`](http://localhost:3000/search)
-- 👟 **Product Detail**: [`/product/[slug]`](http://localhost:3000/product/veloce-apex-carbon-01)
-- 🛒 **Shopping Bag**: [`/cart`](http://localhost:3000/cart)
-- 💖 **Curated Wishlist**: [`/wishlist`](http://localhost:3000/wishlist)
-- 🔑 **Customer Login**: [`/login`](http://localhost:3000/login) *(Demo account: `demo@veloce.com` / `VelocePass123!`)*
-- 📝 **Registration**: [`/register`](http://localhost:3000/register)
-- 👤 **Protected Account**: [`/account`](http://localhost:3000/account)
-
----
-
-## 5. Architectural Principles
-
-1. **Variant-Level Commerce**: Inventory and cart line items are tracked strictly at the purchasable SKU/variant level, never at the conceptual shoe product level.
-2. **Server-Authoritative Pricing**: All monetary values are handled as integer minor units (e.g. `24900` = $249.00). Client cart calculations are informational estimates; final authoritative totals, tax, and shipping are computed on the server.
-3. **Clean Storage Abstraction**: Client persistence is encapsulated behind `StorageAdapter` with schema versioning to enable future drop-in database synchronization without UI modifications.
-4. **Complete Application Isolation**: This repository is completely independent of the warehouse and analytics applications, with its own deployment lifecycle, dependencies, and configuration.
+Create `.env.local` using `.env.example`:
+```env
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+MONGODB_URI=mongodb://localhost:27017/veloce_ecommerce
+MONGODB_DATABASE_NAME=veloce_ecommerce
+AUTH_SECRET=veloce-storefront-auth-jwt-secret-key-2026
+NODE_ENV=development
+```
